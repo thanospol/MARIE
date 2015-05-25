@@ -55,6 +55,7 @@ if ispc
     
     cd('.\src_sie\src_coupling\src_quadraturemex\coupling_qmex')
     mexCoupling_build
+	mexCouplingACA_build
     cd(currentFolder)
     
         
@@ -79,6 +80,7 @@ else
     
     cd('./src_sie/src_coupling/src_quadraturemex/coupling_qmex')
     mexCoupling_build
+	mexCouplingACA_build
     cd(currentFolder)
     
     
