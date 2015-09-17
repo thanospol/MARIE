@@ -5,11 +5,17 @@
 #include <omp.h>
 #include <complex>
 #include <algorithm>
+#include <cstring>
+
+#ifndef _OPENMP
+	#define omp_get_num_procs() 0
+	#define omp_set_num_threads(int) 0
+#endif
 
 using namespace std;
 
-void Coupling_column(const mxArray* contributors, const int64_t J, const int64_t Mc, const double R1[], const double R2[], const double R3[], const double RO[], const double K0, const int NP_2D, const double Z1[], const double Z2[], const double Z3[], const double WP[], complex<double> uJ[]);
-void Coupling_row(int64_t const I, int64_t const M, int64_t const Mc, int64_t const Ne, double const* RO,double const* R1, double const* R2, double const* R3, double const K0,int const NP_2D, double const* Z1, double const* Z2, double const* Z3,double const* WP, double const* IDX, double const* MULT, complex<double>** const Vk);
+void Coupling_column(const int64_t dtoe[], const int64_t J, const int64_t Mc, const double R1[], const double R2[], const double R3[], const double RO[], const double K0, const int NP_2D, const double Z1[], const double Z2[], const double Z3[], const double WP[], complex<double> uJ[]);
+void Coupling_row(int64_t const I, int64_t const M, int64_t const Mc, int64_t const Ne, double const RO[],double const R1[], double const R2[], double const R3[], double const K0,int const NP_2D, double const Z1[], double const Z2[], double const Z3[],double const WP[], int64_t const etod[], complex<double>** Vk);
 void update_norm(double* const SF2, double* const uvF2, int const M, int const N, int const k, complex<double> const* uk, complex<double> const* vk, double** const* U, double** const* V);
 int compare_norm(const complex<double> x, const complex<double> y) {
 	return norm(x) <= norm(y);
@@ -19,6 +25,15 @@ void mexFunction(int nlhs, mxArray* plhs[], int nrhs, const mxArray* prhs[]) {
 // --------------------------------------
 //         map IO to variables
 // --------------------------------------
+
+// check for proper datatypes
+if(!mxIsInt64(prhs[6])) {
+	mexErrMsgTxt("etod must be of type int64");
+}
+if(!mxIsInt64(prhs[14])) {
+	mexErrMsgTxt("dtoe must be of type int64");
+}
+
 
 //  point to data in vectors R 
 double* const R1 = mxGetPr(prhs[0]);
@@ -31,24 +46,23 @@ double* const RO = mxGetPr(prhs[4]);
 int64_t const No = (int64_t) mxGetScalar(prhs[5]);
 
 // stores sign, multiplying factor, etc.
-double* const IDXdouble = mxGetPr(prhs[6]);
-double* const MULT = mxGetPr(prhs[7]);
+int64_t* const etod = (int64_t*)mxGetData(prhs[6]);
 
-int64_t const NC = (int64_t) mxGetScalar(prhs[8]);
+int64_t const NC = (int64_t) mxGetScalar(prhs[7]);
 int64_t const Nd = NC;
-double const K0 = mxGetScalar(prhs[9]);
-int const NP_2D = (int) mxGetScalar(prhs[10]);
+double const K0 = mxGetScalar(prhs[8]);
+int const NP_2D = (int) mxGetScalar(prhs[9]);
 
 //  create a pointer to w,u,v 
-double* const Z1 = mxGetPr(prhs[11]);
-double* const Z2 = mxGetPr(prhs[12]);
-double* const Z3 = mxGetPr(prhs[13]);
-double* const WP = mxGetPr(prhs[14]);
+double* const Z1 = mxGetPr(prhs[10]);
+double* const Z2 = mxGetPr(prhs[11]);
+double* const Z3 = mxGetPr(prhs[12]);
+double* const WP = mxGetPr(prhs[13]);
 
 // ACA parameters
-const mxArray* contributors = prhs[15];
-double const tol = mxGetScalar(prhs[16]);
-int order = (int) mxGetScalar(prhs[17]);
+int64_t const* dtoe = (int64_t*)mxGetData(prhs[14]);
+double const tol = mxGetScalar(prhs[15]);
+int order = (int) mxGetScalar(prhs[16]);
 
 // --------------------------------------
 //         declare local variables
@@ -90,6 +104,9 @@ for(int r = 0;r < min(M,N);r++) {
 NPROC = omp_get_num_procs(); // get number of processors in machine
 omp_set_num_threads(NPROC); // set number of threads to maximum
 
+mexPrintf("\nNPROC: %d", NPROC);
+mexEvalString("drawnow;");
+
 // loop
 int k;
 for(k = 0;k < min(M,N);k++) {
@@ -109,7 +126,7 @@ for(k = 0;k < min(M,N);k++) {
 	// --------------------------------------
 	
 	// calculate rows of A corresponding to I
-	Coupling_row(I, M, Mc, Ne, RO, R1, R2, R3, K0, NP_2D, Z1, Z2, Z3, WP, IDXdouble, MULT, Vk);
+	Coupling_row(I, M, Mc, Ne, RO, R1, R2, R3, K0, NP_2D, Z1, Z2, Z3, WP, etod, Vk);
 
 	// calculate rows of R from rows of A
 	#pragma omp parallel for
@@ -145,7 +162,7 @@ for(k = 0;k < min(M,N);k++) {
     // --------------------------------------
 	//         calculate u_k
 	// --------------------------------------
-	Coupling_column(contributors, J, Mc, R1, R2, R3, RO, K0, NP_2D, Z1, Z2, Z3, WP, uk);
+	Coupling_column(dtoe, J, Mc, R1, R2, R3, RO, K0, NP_2D, Z1, Z2, Z3, WP, uk);
 
 	// calculate column of R from column of A
 	#pragma omp parallel for
@@ -182,6 +199,8 @@ for(k = 0;k < min(M,N);k++) {
 	// ---------------------------------------------
 	//  terminate or get index of new row to expand
 	// ---------------------------------------------
+	mexPrintf("\nratio: %1.6e", sqrt(uvF2/SF2));
+	mexEvalString("drawnow;");
 	if(sqrt(uvF2) < tol*sqrt(SF2)) {
 		k += 1;
 		break;
@@ -230,8 +249,7 @@ void update_norm(double* const SF2, double* const uvF2, int const M, int const N
 	for(int n=0;n < N;n++)
 		vF2 += norm(vk[n]);
 
-	#pragma omp parallel for reduction(+:UVxF2) \
-	 default(shared) private(Uu,Vv)
+	#pragma omp parallel for reduction(+:UVxF2) default(shared) private(Uu,Vv)
 	for(int r=0;r < k;r++) {
 		Uu = 0.0;
 		for(int m = 0;m < M;m++)

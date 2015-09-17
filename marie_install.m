@@ -29,60 +29,40 @@
 %     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 %
 % _________________________________________________________________________
+%%
+current = pwd;
+root = 'MARIE';
+tree = strsplit(pwd,filesep);
+cd(fullfile(strjoin(tree(1:find(strcmp(tree,root))),filesep)));
+clear root tree;
 
+%%
+try
+	%% Cubatures
+	cd(fullfile('.','src_vie','src_operators','mexcubatures'));
+	mexdirect_ws_const_build;
+	cd(current);
 
+	%% coupling
+	cd(fullfile('.','src_sie','src_assembly','src_mexdirect_ws_rwg'));
+	mexdirect_ws_rwg_build;
+	cd(current);
+	cd(fullfile('.','src_sie','src_coupling','src_quadrature','coupling_mex'));
+	mexCoupling_build;
+	cd(current);
+	cd(fullfile('.','src_sie','src_coupling','src_quadraturemex','coupling_qmex'));
+	mexCoupling_build;
+	cd(current);
+	cd(fullfile('.','src_sie','src_coupling','src_quadraturemex','coupling_qmex'));
+	mexCouplingACA_build;
+	cd(current);
 
-
-clear all
-
-if ispc
-    
-    currentFolder = pwd;    
-    
-    % Cubatures
-    cd('.\src_vie\src_operators\mexcubatures')
-    mexdirect_ws_const_build    
-    cd(currentFolder)    
-    
-    % coupling
-    cd('.\src_sie\src_assembly\src_mexdirect_ws_rwg')
-    mexdirect_ws_rwg_build
-    cd(currentFolder)
-    
-    cd('.\src_sie\src_coupling\src_quadrature\coupling_mex')
-    mexCoupling_build
-    cd(currentFolder)
-    
-    cd('.\src_sie\src_coupling\src_quadraturemex\coupling_qmex')
-    mexCoupling_build
-	mexCouplingACA_build
-    cd(currentFolder)
-    
-        
-    
-else
-    
-    currentFolder = pwd;
-    
-    % Cubatures
-    cd('./src_vie/src_operators/mexcubatures')
-    mexdirect_ws_const_build    
-    cd(currentFolder)    
-    
-    % coupling
-    cd('./src_sie/src_assembly/src_mexdirect_ws_rwg')
-    mexdirect_ws_rwg_build
-    cd(currentFolder)
-    
-    cd('./src_sie/src_coupling/src_quadrature/coupling_mex')
-    mexCoupling_build
-    cd(currentFolder)
-    
-    cd('./src_sie/src_coupling/src_quadraturemex/coupling_qmex')
-    mexCoupling_build
-	mexCouplingACA_build
-    cd(currentFolder)
-    
-    
+	%% data parsing
+	cd(fullfile('.','src_geometry','src_scat','src_data'));
+	mexDataBuild;
+	cd(current);
+catch me
+	cd(current);
+	error('Unable to compile MARIE\nMake sure to properly configure mex and openmp libraries.\nIdentifier: %s\nMessage: %s\n', me.identifier, me.message);
 end
-
+clear current;

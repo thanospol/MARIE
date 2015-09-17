@@ -1,10 +1,15 @@
 % clear all
 % close all
 % clc
-
 try
-	mex -output ompQuadCoil2ScatACA COMPFLAGS="$COMPFLAGS /openmp" -v -O -largeArrayDims QuadCoil2ScatACA_ompmex.cpp Coupling.cpp Coupling_ACA.cpp
+    if ispc
+        mex -output ompQuadCoil2ScatACA COMPFLAGS="$COMPFLAGS /openmp" -v -O -largeArrayDims QuadCoil2ScatACA_ompmex.cpp Coupling.cpp Coupling_ACA.cpp
+	else
+        mex -output ompQuadCoil2ScatACA COMPFLAGS='$COMPFLAGS -fopenmp' LDFLAGS='$LDFLAGS -fopenmp' CXXOPTIMFLAGS='$CXXOPTIMFLAGS -fopenmp' -v -O -largeArrayDims QuadCoil2ScatACA_ompmex.cpp Coupling.cpp Coupling_ACA.cpp
+    end
 catch me
-	fprintf(1, '\n\n\n  Warning: no openmp compatible compiler\n  ACA is only available on openmp-compatible clients\n\n');
-	pause(3);
+	warning('Unable to compile ACA with openmp; make sure that your openmp libraries are installed');
+	me.message
+	me.stack
+	mex -output ompQuadCoil2ScatACA -v -O -largeArrayDims QuadCoil2ScatACA_ompmex.cpp Coupling.cpp Coupling_ACA.cpp
 end

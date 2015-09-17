@@ -1,4 +1,4 @@
-function [U V] = Assembly_SCOUP_QMEX_ACA(Scoord,index,etod,node,elem,freq,LEVEL_DVrule,tol,order)
+function [U, V] = Assembly_SCOUP_QMEX_ACA(Scoord,index,etod,node,elem,freq,LEVEL_DVrule,tol,order)
 % -------------------------------------------------------------------------
 %            Define EM constants
 % -------------------------------------------------------------------------
@@ -33,33 +33,30 @@ R1 = node(:,elem(1,:)); % 3xNe with coordinates of the first node of all element
 R2 = node(:,elem(2,:)); % 3xNe with coordinates of the first node of all elements
 R3 = node(:,elem(3,:)); % 3xNe with coordinates of the first node of all elements
 
-ABSNUM = abs(etod(:,:)); % internal index of the edge
-MULT = etod(:,:)./ABSNUM; % +1 or -1
-IDX = index(ABSNUM);
-
-contributors = cell([Nd 3]);
-for k=1:3*Nd
-	contributors{k} = zeros(0);
-end
-for n = 1:Ne
-	for k = 1:3
+idxNZ = zeros(Nd,3);
+dtoe = zeros(3,3,Nd);
+for n=1:Ne
+	for k=1:3
 		idx = index(abs(etod(k,n)));
 		if idx
-			contributors{idx, k}(end+1) = sign(etod(k,n))*n;
+			idxNZ(idx,k) = idxNZ(idx,k)+1;
+			dtoe(idxNZ(idx,k), k, idx) = sign(etod(k,n))*n;
 		end
 	end
 end
+dtoe = int64(dtoe(:));
+etod = index(abs(etod(:,:))).*sign(etod(:,:));
+etod = int64(etod(:));
 
 M  = 3*No; % total number of rows
 Mc = No;   % rows per component
 N  = Nd;   % total number of columns
-
 D = order;
 
 % -------------------------------------------------------------------------
 % Call mex function
 % -------------------------------------------------------------------------
-[U V] = ompQuadCoil2ScatACA(R1(:),R2(:),R3(:),Ne,RO(:),No,IDX(:),MULT(:),Nd,ko,Np_2D,Z1,Z2,Z3,wp,contributors,tol,order);
+[U, V] = ompQuadCoil2ScatACA(R1(:),R2(:),R3(:),Ne,RO(:),No,etod,Nd,ko,Np_2D,Z1,Z2,Z3,wp,dtoe,tol,order);
 U = cell2mat(U);
 V = cell2mat(V);
 

@@ -43,7 +43,7 @@ function [RHBM] = Import_RHBM(vsmfile,resolution,xlimits,ylimits,zlimits)
 %   MARIE - Magnetic Resonance Integral Equation suite
 %           Jorge Fernandez Villena   -- jvillena@mit.edu
 %           Athanasios G. Polimeridis -- thanos_p@mit.edu
-%           Copyright © 2014
+%           Copyright ï¿½ 2014
 %           RLE Computational Prototyping Group, MIT
 % 
 %           This software is free and open source
@@ -95,8 +95,12 @@ if strcmp(extension, '.dat') % dat file
     % -------------------------------------------------------------------------
     %   Parse
     % -------------------------------------------------------------------------
+	voxelfile = which(voxelfile);
+	xfile = which(xfile);
+	yfile = which(yfile);
+	zfile = which(zfile);
     
-    [x,y,z,epsilon_r,sigma_e,rho,~,~,~] = RHBMDat_Parse(voxelfile,xfile,yfile,zfile);
+    [x,y,z,epsilon_r,sigma_e,rho,~,~,~] = RHBMDat_ParseMEX(voxelfile,xfile,yfile,zfile);
 
 else
     
