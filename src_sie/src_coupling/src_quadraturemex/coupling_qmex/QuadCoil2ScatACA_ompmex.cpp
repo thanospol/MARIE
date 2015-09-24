@@ -1,23 +1,30 @@
 #include "mex.h"
-#include <math.h>
 #include "matrix.h"
 #include "stdint.h"
+#include <cmath>
 #include <omp.h>
 #include <complex>
 #include <algorithm>
 #include <cstring>
+#include <vector>
 
 #ifndef _OPENMP
 	#define omp_get_num_procs() 0
 	#define omp_set_num_threads(int) 0
 #endif
 
+extern "C" {
+	#include "blas.h"
+}
+
+typedef std::complex<double> cdouble;
+
 using namespace std;
 
-void Coupling_column(const int64_t dtoe[], const int64_t J, const int64_t Mc, const double R1[], const double R2[], const double R3[], const double RO[], const double K0, const int NP_2D, const double Z1[], const double Z2[], const double Z3[], const double WP[], complex<double> uJ[]);
-void Coupling_row(int64_t const I, int64_t const M, int64_t const Mc, int64_t const Ne, double const RO[],double const R1[], double const R2[], double const R3[], double const K0,int const NP_2D, double const Z1[], double const Z2[], double const Z3[],double const WP[], int64_t const etod[], complex<double>** Vk);
-void update_norm(double* const SF2, double* const uvF2, int const M, int const N, int const k, complex<double> const* uk, complex<double> const* vk, double** const* U, double** const* V);
-int compare_norm(const complex<double> x, const complex<double> y) {
+void Coupling_column(const int64_t dtoe[], const int64_t J, const int64_t Mc, const double R1[], const double R2[], const double R3[], const double RO[], const double K0, const int NP_2D, const double Z1[], const double Z2[], const double Z3[], const double WP[], cdouble* const uJ);
+void Coupling_row(int64_t const I, int64_t const M, int64_t const Mc, int64_t const Ne, double const RO[],double const R1[], double const R2[], double const R3[], double const K0,int const NP_2D, double const Z1[], double const Z2[], double const Z3[],double const WP[], int64_t const etod[], cdouble* const Vk[3]);
+void update_norm(double* SF2, double* RF2, double* uvF2, int64_t M, int64_t N, int64_t k, int64_t D, double const* uk, double const* vk, double const* U, double const* V);
+int compare_norm(const cdouble x, const cdouble y) {
 	return norm(x) <= norm(y);
 }
 
@@ -32,6 +39,9 @@ if(!mxIsInt64(prhs[6])) {
 }
 if(!mxIsInt64(prhs[14])) {
 	mexErrMsgTxt("dtoe must be of type int64");
+}
+if(!mxIsInt64(prhs[16])) {
+	mexErrMsgTxt("order must be of type int64");
 }
 
 
@@ -62,7 +72,7 @@ double* const WP = mxGetPr(prhs[13]);
 // ACA parameters
 int64_t const* dtoe = (int64_t*)mxGetData(prhs[14]);
 double const tol = mxGetScalar(prhs[15]);
-int order = (int) mxGetScalar(prhs[16]);
+int64_t const order = (int64_t)mxGetScalar(prhs[16]);
 
 // --------------------------------------
 //         declare local variables
@@ -72,143 +82,106 @@ int order = (int) mxGetScalar(prhs[16]);
 int NPROC = 1;
 
 // constants
-const int64_t M = 3*No;
-const int64_t Mc = No;
-const int64_t N = NC;
-const int64_t D = order;
+int64_t const M = 3*No;
+int64_t const Mc = No;
+int64_t const N = NC;
+int64_t const D = order;
 
 // loop variables
 int64_t I = 0;
 int64_t J = 0;
+int64_t R = 0;
 
-// intermediate storage
+// norms
 double SF2 = 0.0;
-double uvF2 = 0.0;
+double RF2 = 0.0;
+double uvF2[D+1];
 
-// local storage of row(s) & column
-complex<double>* uk = new complex<double>[M];
-complex<double>* vk = new complex<double>[N];
-complex<double>** Vk = new complex<double>*[3];
-for(int r = 0;r < 3;r++)
-	Vk[r] = new complex<double>[N];
+// components to be added to the basis
+double uk[2*M];
+double vk[2*N];
+double vk3[3*2*N];
+double* const Vk[3] = {vk3, vk3+2*N, vk3+4*N};
+
+// cast-typed pointers for coupling calculation
+cdouble* const ukc = (cdouble*)uk;
+cdouble* const Vkc[3] = {(cdouble*)Vk[0], (cdouble*)Vk[1], (cdouble*)Vk[2]};
+
+// normalization multiplier
+cdouble nVkc;
+double* const nVk = (double*)&nVkc;
 
 // output arguments
-double*** const U = new double**[min(M,N)]; // 0 real
-double*** const V = new double**[min(M,N)]; // 1 imag
-for(int r = 0;r < min(M,N);r++) {
-	U[r] = new double*[2];
-	V[r] = new double*[2];
-}
+vector<double> Uv;
+vector<double> Vv;
+
+double* U;
+double* V;
+
+Uv.reserve(max(2*M*min(M,N)/8, 2*M));
+Vv.reserve(max(2*N*min(M,N)/8, 2*N));
+
+// blas-specific pointers
+int64_t const D0[] = {0, 1, 2, 3};
+cdouble const F[] = {-1, 0, 1, 2};
+double const* const F0 = (double const*)(F+1);
 
 // get max number of threads for omp
 NPROC = omp_get_num_procs(); // get number of processors in machine
 omp_set_num_threads(NPROC); // set number of threads to maximum
 
-mexPrintf("\nNPROC: %d", NPROC);
-mexEvalString("drawnow;");
-
 // loop
-int k;
+int64_t k;
 for(k = 0;k < min(M,N);k++) {
-	// --------------------------------------
-	//           zero out buffers
-	// --------------------------------------
-	for(int m=0;m < M;m++)
-		uk[m] = 0;
-	for(int n=0;n < N;n++) {
-		vk[n] = 0;
-		for(int r=0;r < 3;r++)
-			Vk[r][n] = 0;
-	}
+	// zero out buffers
+	memset(uk,  0,   2*M*sizeof(double));
+	memset(vk,  0,   2*N*sizeof(double));
+	memset(vk3, 0, 3*2*N*sizeof(double));
 
-    // --------------------------------------
-	//         calculate v_k
-	// --------------------------------------
-	
-	// calculate rows of A corresponding to I
-	Coupling_row(I, M, Mc, Ne, RO, R1, R2, R3, K0, NP_2D, Z1, Z2, Z3, WP, etod, Vk);
+	Uv.resize((k+1)*2*M);
+	Vv.resize((k+1)*2*N);
+
+	U = &Uv.front();
+	V = &Vv.front();
+
+	// calculate v_k
+	Coupling_row(I, M, Mc, Ne, RO, R1, R2, R3, K0, NP_2D, Z1, Z2, Z3, WP, etod, Vkc);
 
 	// calculate rows of R from rows of A
-	#pragma omp parallel for
-	for(int64_t n = 0;n < N;n++) {
-		for(int64_t r = 0;r < 3;r++) {
-			int64_t Ir = (I%Mc)+r*Mc;
-			complex<double> vP = 0.0;
-			for(int64_t l = 0;l < k;l++)
-				vP += complex<double>(V[l][0][n],V[l][1][n])*complex<double>(U[l][0][Ir],-U[l][1][Ir]);
-			Vk[r][n] -= vP;
-		}
-	}
+	for(int64_t r=0, Ir=I%Mc;r < 3;r++, Ir += Mc)
+		zgemm("N", "C", &N, D0+1, &k, F0-2, V, &N, U+2*Ir, &M, F0+2, Vk[r], &N);
 
 	// find row with largest element
-	int R = 0;
-	double vM = 0.0;
-	for(int r = 0;r < 3;r++) {
-		complex<double>* vPtr = max_element(Vk[r], Vk[r]+N, compare_norm);
-		if(norm(*vPtr) > vM) {
-			J = distance(Vk[r], vPtr);
-			R = r;
-			vM = norm(*vPtr);
-		}
-	}
+	J = distance(Vkc[0], max_element(Vkc[0], Vkc[0]+3*N, compare_norm));
+	R = J / N;
+	J = J % N;
 	
 	// set new vk to row with largest element
-	memcpy(vk, Vk[R], N*sizeof(complex<double>));
-	#pragma omp parallel for
-	for(int n = 0;n < N;n++) {
-		vk[n] /= Vk[R][J];
-	}
+	nVkc = 1.0/Vkc[R][J];
+	zaxpy(&N, nVk, Vk[R], D0+1, vk, D0+1);
 
-    // --------------------------------------
-	//         calculate u_k
-	// --------------------------------------
-	Coupling_column(dtoe, J, Mc, R1, R2, R3, RO, K0, NP_2D, Z1, Z2, Z3, WP, uk);
+	// calculate u_k
+	Coupling_column(dtoe, J, Mc, R1, R2, R3, RO, K0, NP_2D, Z1, Z2, Z3, WP, ukc);
 
 	// calculate column of R from column of A
-	#pragma omp parallel for
-	for(int m = 0;m < M;m++) {
-		complex<double> uP = 0.0;
-		for(int r = 0;r < k;r++)
-			uP += complex<double>(U[r][0][m], U[r][1][m])*complex<double>(V[r][0][J], -V[r][1][J]); // U[r][m]*conj(V[r][J]);
-		uk[m] -= uP;
-	}
+	zgemm("N", "C", &M, D0+1, &k, F0-2, U, &M, V+2*J, &N, F0+2, uk, &M);
 
-    // --------------------------------------
-	//        update norms and basis
-	// --------------------------------------
-	update_norm(&SF2, &uvF2, M, N, k, uk, vk, U, V);
+   	// update norms
+	update_norm(&SF2, &RF2, uvF2, M, N, k, D, uk, vk, U, V);
 	
-	U[k] = new double*[2];
-	V[k] = new double*[2];
-	U[k][0] = (double*)mxMalloc(M*sizeof(double)); // new double[M];
-	U[k][1] = (double*)mxMalloc(M*sizeof(double)); // new double[M];
-	V[k][0] = (double*)mxMalloc(N*sizeof(double)); // new double[N];
-	V[k][1] = (double*)mxMalloc(N*sizeof(double)); // new double[N];
+	// update basis
+	zcopy(&M, uk, D0+1, U+2*k*M, D0+1);
+	zcopy(&N, vk, D0+1, V+2*k*N, D0+1);
 	
-	for(int m = 0;m < M;m++) {
-		U[k][0][m] = real(uk[m]);
-		U[k][1][m] = imag(uk[m]);
-	}
-	for(int n = 0;n < N;n++) {
-		V[k][0][n] = real(vk[n]);
-		V[k][1][n] = imag(vk[n]);
-	}
-	// memcpy(U[k], uk, M*sizeof(complex<double>));
-	// memcpy(V[k], vk, N*sizeof(complex<double>));
-	
-	// ---------------------------------------------
-	//  terminate or get index of new row to expand
-	// ---------------------------------------------
-	mexPrintf("\nratio: %1.6e", sqrt(uvF2/SF2));
-	mexEvalString("drawnow;");
-	if(sqrt(uvF2) < tol*sqrt(SF2)) {
+	// terminate or get index of new row to expand
+	if(sqrt(RF2) < tol*sqrt(SF2)) {
 		k += 1;
 		break;
 	}
 	
 	// find row with largest element
-	uk[I] = 0;
-	I = distance(uk, max_element(uk, uk+M, compare_norm));
+	ukc[I] = 0;
+	I = distance(ukc, max_element(ukc, ukc+M, compare_norm));
 }
 
 // outputs
@@ -218,48 +191,50 @@ plhs[1] = mxCreateCellMatrix(1, k);
 mxArray* const Uc = plhs[0];
 mxArray* const Vc = plhs[1];
 
-//#pragma omp parallel for
-const mwSize Udims[2] = {M, 1};
-const mwSize Vdims[2] = {N, 1};
-
-for(int r = 0;r < k;r++) {
-	mxArray* Ucv = mxCreateNumericArray(2, Udims, mxDOUBLE_CLASS, mxCOMPLEX);
-	mxArray* Vcv = mxCreateNumericArray(2, Vdims, mxDOUBLE_CLASS, mxCOMPLEX);
-	mxSetPr(Ucv, U[r][0]);
-	mxSetPi(Ucv, U[r][1]);
-	mxSetPr(Vcv, V[r][0]);
-	mxSetPi(Vcv, V[r][1]);
+for(int r = k-1;r >= 0;r--) {
+	mxArray* Ucv = mxCreateUninitNumericMatrix(M, 1, mxDOUBLE_CLASS, mxCOMPLEX);
+	mxArray* Vcv = mxCreateUninitNumericMatrix(N, 1, mxDOUBLE_CLASS, mxCOMPLEX);
+	dcopy(&M, U+(2*M*r),   D0+2, mxGetPr(Ucv), D0+1);
+	dcopy(&M, U+(2*M*r)+1, D0+2, mxGetPi(Ucv), D0+1);
+	dcopy(&N, V+(2*N*r),   D0+2, mxGetPr(Vcv), D0+1);
+	dcopy(&N, V+(2*N*r)+1, D0+2, mxGetPi(Vcv), D0+1);
 	mxSetCell(Uc, r, Ucv);
 	mxSetCell(Vc, r, Vcv);
+	Uv.resize(r*2*M);
+	Vv.resize(r*2*N);
 }
 
 }
 
-void update_norm(double* const SF2, double* const uvF2, int const M, int const N, int const k, complex<double> const* uk, complex<double> const* vk, double** const* U, double** const* V) {
-	double uF2 = 0.0;
-	double vF2 = 0.0;
+void update_norm(double* const SF2, double* const RF2, double* const uvF2, int64_t const M, int64_t const N, int64_t const k, int64_t const D, double const* const uk, double const* const vk, double const* const U, double const* const V) {
+	double uF2, vF2, UuVv;
+	double Uu[2*k], Vv[2*k];
+	double Uu0[2*D-2], Vv0[2*D-2];
+	double UuVv0, UuVvD;
+	int64_t const Dp = min(k, D-1);
+	int64_t const Sp = min(max(k-(D-1),int64_t(0)),int64_t(1))*(D-1);
+
+	// blas-specific pointers
+	int64_t const D0[] = {0, 1, 2, 3};
+	cdouble const F[] = {-1, 0, 1, 2};
+	double const* const F0 = (double* const)(F+1);
 	
-	double UVxF2 = 0.0;
-	complex<double> Uu = 0.0;
-	complex<double> Vv = 0.0;
-	
-	for(int m=0;m < M;m++)
-		uF2 += norm(uk[m]);
+	uF2 = pow(dznrm2(&M, uk, D0+1), 2);
+	vF2 = pow(dznrm2(&N, vk, D0+1), 2);
 
-	for(int n=0;n < N;n++)
-		vF2 += norm(vk[n]);
+	zgemv("C", &M, &k, F0+2, U, &M, uk, D0+1, F0, Uu, D0+1);
+	zgemv("C", &N, &k, F0+2, V, &N, vk, D0+1, F0, Vv, D0+1);
+	UuVv = 2*zdotu(&k, Uu, D0+1, Vv, D0+1).r;
 
-	#pragma omp parallel for reduction(+:UVxF2) default(shared) private(Uu,Vv)
-	for(int r=0;r < k;r++) {
-		Uu = 0.0;
-		for(int m = 0;m < M;m++)
-			Uu += complex<double>(U[r][0][m],-U[r][1][m])*uk[m]; // conj(U[r][m])*uk[m];
-		Vv = 0.0;
-		for(int n = 0;n < N;n++)
-			Vv += complex<double>(V[r][0][n],-V[r][1][n])*vk[n]; // conj(V[r][n])*vk[n];
-		UVxF2 += 2*real(Uu*Vv);
-	}
+	zgemv("C", &M, &Sp, F0+2, U+2*(k-Dp)*M, &M, U+2*(k-Dp-1)*M, D0+1, F0, Uu0, D0+1);
+	zgemv("C", &N, &Sp, F0+2, V+2*(k-Dp)*N, &N, V+2*(k-Dp-1)*N, D0+1, F0, Vv0, D0+1);
 
-	(*uvF2) = uF2*vF2;
-	(*SF2) += (*uvF2) + UVxF2;
+	UuVvD = 2*zdotu(&Dp, Uu+2*(k-Dp), D0+1, Vv+2*(k-Dp), D0+1).r;
+	UuVv0 = 2*zdotu(&Sp, Uu0, D0+1, Vv0, D0+1).r;
+
+	dcopy(&D, uvF2+1, D0+1, uvF2, D0+1);
+	uvF2[D] = uF2*vF2;
+
+	(*RF2) += uvF2[D] - uvF2[0] + UuVvD - UuVv0;
+	(*SF2) += uvF2[D] + UuVv;
 }
