@@ -1,5 +1,6 @@
 #include "mex.h"
 #include "matrix.h"
+#include "blas.h"
 #include "stdint.h"
 #include <cmath>
 #include <omp.h>
@@ -13,10 +14,6 @@
 	#define omp_set_num_threads(int) 0
 #endif
 
-extern "C" {
-	#include "blas.h"
-}
-
 typedef std::complex<double> cdouble;
 
 using namespace std;
@@ -26,6 +23,21 @@ void Coupling_row(int64_t const I, int64_t const M, int64_t const Mc, int64_t co
 void update_norm(double* SF2, double* RF2, double* uvF2, int64_t M, int64_t N, int64_t k, int64_t D, double const* uk, double const* vk, double const* U, double const* V);
 int compare_norm(const cdouble x, const cdouble y) {
 	return norm(x) <= norm(y);
+}
+
+// pointers for BLAS
+static int64_t const D0[] = {0, 1, 2, 3};
+static cdouble const F[] = {-1, 0, 1, 2};
+static double const* const F0 = (double* const)(F+1);
+
+double rzdotu(int64_t const k, double* const Uu, double* const Vv) {
+	#ifndef _WIN32
+		return zdotu(&k, Uu, D0+1, Vv, D0+1).r;
+	#else
+		double UuVv[2] = {0.0,0.0};
+		zgemv("N", D0+1, &k, F0+2, Uu, D0+1, Vv, D0+1, F0, UuVv, D0+1);
+		return UuVv[0];
+	#endif
 }
 
 void mexFunction(int nlhs, mxArray* plhs[], int nrhs, const mxArray* prhs[]) {
@@ -95,12 +107,13 @@ int64_t R = 0;
 // norms
 double SF2 = 0.0;
 double RF2 = 0.0;
-double uvF2[D+1];
+double* const uvF2 = new double[D+1];
+memset(uvF2, 0, (D+1)*sizeof(double));
 
 // components to be added to the basis
-double uk[2*M];
-double vk[2*N];
-double vk3[3*2*N];
+double* const uk = new double[2*M];
+double* const vk = new double[2*N];
+double* const vk3 = new double[3*2*N];
 double* const Vk[3] = {vk3, vk3+2*N, vk3+4*N};
 
 // cast-typed pointers for coupling calculation
@@ -121,23 +134,18 @@ double* V;
 Uv.reserve(max(2*M*min(M,N)/8, 2*M));
 Vv.reserve(max(2*N*min(M,N)/8, 2*N));
 
-// blas-specific pointers
-int64_t const D0[] = {0, 1, 2, 3};
-cdouble const F[] = {-1, 0, 1, 2};
-double const* const F0 = (double const*)(F+1);
-
 // get max number of threads for omp
 NPROC = omp_get_num_procs(); // get number of processors in machine
 omp_set_num_threads(NPROC); // set number of threads to maximum
 
 // loop
-int64_t k;
+int64_t k = 0;
 for(k = 0;k < min(M,N);k++) {
 	// zero out buffers
 	memset(uk,  0,   2*M*sizeof(double));
 	memset(vk,  0,   2*N*sizeof(double));
 	memset(vk3, 0, 3*2*N*sizeof(double));
-
+	
 	Uv.resize((k+1)*2*M);
 	Vv.resize((k+1)*2*N);
 
@@ -191,7 +199,7 @@ plhs[1] = mxCreateCellMatrix(1, k);
 mxArray* const Uc = plhs[0];
 mxArray* const Vc = plhs[1];
 
-for(int r = k-1;r >= 0;r--) {
+for(int64_t r = k-1;r >= 0;r--) {
 	mxArray* Ucv = mxCreateUninitNumericMatrix(M, 1, mxDOUBLE_CLASS, mxCOMPLEX);
 	mxArray* Vcv = mxCreateUninitNumericMatrix(N, 1, mxDOUBLE_CLASS, mxCOMPLEX);
 	dcopy(&M, U+(2*M*r),   D0+2, mxGetPr(Ucv), D0+1);
@@ -208,30 +216,28 @@ for(int r = k-1;r >= 0;r--) {
 
 void update_norm(double* const SF2, double* const RF2, double* const uvF2, int64_t const M, int64_t const N, int64_t const k, int64_t const D, double const* const uk, double const* const vk, double const* const U, double const* const V) {
 	double uF2, vF2, UuVv;
-	double Uu[2*k], Vv[2*k];
-	double Uu0[2*D-2], Vv0[2*D-2];
+	double* const Uu = new double[2*k];
+	double* const Vv = new double[2*k];
+	double* const Uu0 = new double[2*D-2];
+	double* const Vv0 = new double[2*D-2];
 	double UuVv0, UuVvD;
 	int64_t const Dp = min(k, D-1);
-	int64_t const Sp = min(max(k-(D-1),int64_t(0)),int64_t(1))*(D-1);
+	int64_t const EN0 = min(max(k-(D-1),int64_t(0)),int64_t(1));
+	int64_t const Sp = EN0*(D-1);
 
 	// blas-specific pointers
-	int64_t const D0[] = {0, 1, 2, 3};
-	cdouble const F[] = {-1, 0, 1, 2};
-	double const* const F0 = (double* const)(F+1);
-	
 	uF2 = pow(dznrm2(&M, uk, D0+1), 2);
 	vF2 = pow(dznrm2(&N, vk, D0+1), 2);
 
 	zgemv("C", &M, &k, F0+2, U, &M, uk, D0+1, F0, Uu, D0+1);
 	zgemv("C", &N, &k, F0+2, V, &N, vk, D0+1, F0, Vv, D0+1);
-	UuVv = 2*zdotu(&k, Uu, D0+1, Vv, D0+1).r;
-
 	zgemv("C", &M, &Sp, F0+2, U+2*(k-Dp)*M, &M, U+2*(k-Dp-1)*M, D0+1, F0, Uu0, D0+1);
 	zgemv("C", &N, &Sp, F0+2, V+2*(k-Dp)*N, &N, V+2*(k-Dp-1)*N, D0+1, F0, Vv0, D0+1);
 
-	UuVvD = 2*zdotu(&Dp, Uu+2*(k-Dp), D0+1, Vv+2*(k-Dp), D0+1).r;
-	UuVv0 = 2*zdotu(&Sp, Uu0, D0+1, Vv0, D0+1).r;
-
+	UuVv  = 2*rzdotu(k, Uu, Vv);
+	UuVvD = 2*rzdotu(Dp, Uu+2*(k-Dp), Vv+2*(k-Dp));
+	UuVv0 = 2*rzdotu(Sp, Uu0, Vv0);
+	
 	dcopy(&D, uvF2+1, D0+1, uvF2, D0+1);
 	uvF2[D] = uF2*vF2;
 

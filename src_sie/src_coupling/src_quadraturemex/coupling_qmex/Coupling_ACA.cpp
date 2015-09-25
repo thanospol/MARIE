@@ -1,14 +1,22 @@
 #include "mex.h"
-#include <math.h>
 #include "matrix.h"
 #include "stdint.h"
 #include <omp.h>
 #include <complex>
 #include <algorithm>
+#include <cmath>
 
 using namespace std;
 
 void Coupling ( const double r1[3], const double r2[3], const double r3[3], const double r_obs[3], const double ko, const int Np_2D, const double Z1[], const double Z2[], const double Z3[], const double wp[], complex<double> GJ_1[3], complex<double> GJ_2[3], complex<double> GJ_3[3]  );
+
+inline double getsign(int64_t const n) {
+	#ifdef _WIN32
+	return _copysign(1.0, (double)n);
+	#else
+	return copysign(1.0, (double)n);
+	#endif
+}
 
 void Coupling_column(const int64_t dtoe[], const int64_t J, const int64_t Mc,
 					 const double R1[], const double R2[], const double R3[], const double RO[],
@@ -29,7 +37,7 @@ void Coupling_column(const int64_t dtoe[], const int64_t J, const int64_t Mc,
 		for(int64_t k = 0;k < 9;k++) {
 			d = k / 3;
 			n = abs(dtoe[9*J+k])-1;
-			sign = copysign(1.0, dtoe[9*J+k]);
+			sign = getsign(dtoe[9*J+k]);
 			if(n != -1) {
 				// get the coordinates of the element points
 				for(int r=0;r < 3;r++) {
@@ -79,7 +87,7 @@ void Coupling_row(int64_t const I, int64_t const M, int64_t const Mc, int64_t co
 		Coupling(r1, r2, r3, r_obs, K0, NP_2D, Z1, Z2, Z3, WP, GJ[0], GJ[1], GJ[2]);
 		// add computed elements to Vk
 		for(int d = 0;d < 3;d++) {
-			sign = copysign(1.0, etod[3*n+d]);
+			sign = getsign(etod[3*n+d]);
 			IDXn = abs(etod[3*n+d])-1;
 			if(IDXn != -1) {
 				#pragma omp critical
