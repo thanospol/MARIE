@@ -56,7 +56,7 @@ switch Exctype
     case 'P'
         % Plain wave
         k = ko*Pos;
-        [E,H] = PlaneWave_Excitation_V2(r,k,omega_mu,Comp);
+        [E,H] = PlaneWave_Excitation(r,k,omega_mu,Comp);
         
     case 'L'
         % Constant Current Loop

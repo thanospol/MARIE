@@ -1,4 +1,4 @@
-function [E,H] = PlaneWave_Excitation(r,k,omega_mu,polarization)
+function [E,H] = PlaneWave_Excitation(r,k,omega_mu,Eo)
 %%    Function to Generate a Plane wave excitation
 % _________________________________________________________________________
 %
@@ -10,7 +10,7 @@ function [E,H] = PlaneWave_Excitation(r,k,omega_mu,polarization)
 %   r               4D (LxMxNx3) array with domain voxelized grid coordinates
 %   k               vector with wavenumbers in the medium [kx ky kz]
 %   omega_mu        omega*mu
-%   polarization    'x' , 'y' or 'z' depending on the desired polarization
+%   Eo              polarization vector for E-field
 %
 %% OUTPUT
 %   E               Electric field (LxMxNx3)
@@ -18,9 +18,16 @@ function [E,H] = PlaneWave_Excitation(r,k,omega_mu,polarization)
 %
 % -------------------------------------------------------------------------
 %
-%   J. Fernandez Villena -- jvillena@mit.edu
-%   A.G. Polimeridis -- thanos_p@mit.edu
-%   Computational Prototyping Group, RLE at MIT
+%%   This function is part of MARIE
+%   MARIE - Magnetic Resonance Integral Equation suite
+%           Jorge Fernandez Villena   -- jvillena@mit.edu
+%           Athanasios G. Polimeridis -- thanos_p@mit.edu
+%           Copyright © 2014
+%           RLE Computational Prototyping Group, MIT
+% 
+%           This software is free and open source
+%           Distributed under the GNU-GPLv3 terms
+%           For details see MARIE_license.txt
 %
 % _________________________________________________________________________
 
@@ -34,6 +41,12 @@ function [E,H] = PlaneWave_Excitation(r,k,omega_mu,polarization)
 dx = r(2,1,1,1) - r(1,1,1,1);
 dy = r(1,2,1,2) - r(1,1,1,2);
 dz = r(1,1,2,3) - r(1,1,1,3);
+
+% -------------------------------------------------------------------------
+% polarization H-field
+% -------------------------------------------------------------------------
+
+Ho = (1/omega_mu) * cross(k,Eo);
 
 % -------------------------------------------------------------------------
 % extract wavenumbers
@@ -70,25 +83,9 @@ Eexc = Ex .* Ey .* Ez;
 % apply polarization
 % -------------------------------------------------------------------------
 
-if strcmp(polarization,'x')
-
-    E = [Eexc(:) ; zeros(2*L*M*N,1) ];
-    %
-    H =  [zeros(L*M*N,1) ; (kz /omega_mu) * Eexc(:) ; -(ky /omega_mu) * Eexc(:) ];
-
-elseif strcmp(polarization,'y')
-
-    E = [zeros(L*M*N,1) ; Eexc(:) ; zeros(L*M*N,1) ];
-    %
-    H =  [-(kz /omega_mu) * Eexc(:) ; zeros(L*M*N,1) ;  (kx /omega_mu) * Eexc(:) ];
-
-elseif strcmp(polarization,'z')
-
-    E = [zeros(2*L*M*N,1) ; Eexc(:) ];
-    %
-    H =  [(ky /omega_mu) * Eexc(:) ; -(kx /omega_mu) * Eexc(:) : zeros(L*M*N,1) ];
-
-end
+E = [Eo(1)*Eexc(:) ; Eo(2)*Eexc(:) ; Eo(3)*Eexc(:) ];
+%
+H = [Ho(1)*Eexc(:) ; Ho(2)*Eexc(:) ; Ho(3)*Eexc(:) ];
 
 % -------------------------------------------------------------------------
 % reshape and scale to 1V/m

@@ -24,9 +24,9 @@
 %
 % _________________________________________________________________________
 
-close all;
-clear all;
-clc;
+close all
+clear
+clc
 
 % -------------------------------------------------------------------------
 % Add the corresponding path 
@@ -103,9 +103,9 @@ grid on;
 % -------------------------------------------------------------------------
 
 % Define excitation - a plane wave
-polarization = 'x';
-k = [0,0,ko];
-[Einc, Hinc] = PlaneWave_Excitation(r,k,omega_mu,polarization);
+Eo = [1,0,0]; % polarization of E-field
+k = ko * [0,0,1];
+[Einc, Hinc] = PlaneWave_Excitation(r,k,omega_mu,Eo);
 
 % -------------------------------------------------------------------------
 %                 define EM vars and constants
