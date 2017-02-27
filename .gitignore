@@ -1,3 +1,10 @@
 *.mexw64
 *.sav
 *.swp
+*.mat
+*.geo
+*.msh
+*.smm
+*.vmm
+
+src_vie/src_mvp/mv_AN_GPU.m
