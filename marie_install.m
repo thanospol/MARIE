@@ -30,11 +30,9 @@
 %
 % _________________________________________________________________________
 %%
-current = pwd;
-root = 'MARIE';
-tree = strsplit(pwd,filesep);
-cd(fullfile(strjoin(tree(1:find(strcmp(tree,root))),filesep)));
-clear root tree;
+[root,~,~] = fileparts(which('marie_install.m'));
+cd(root);
+clear root;
 
 %%
 try
