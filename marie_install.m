@@ -32,35 +32,38 @@
 %%
 [root,~,~] = fileparts(which('marie_install.m'));
 cd(root);
-clear root;
 
 %%
 try
 	%% Cubatures
 	cd(fullfile('.','src_vie','src_operators','mexcubatures'));
 	mexdirect_ws_const_build;
-	cd(current);
+	cd(root);
 
 	%% coupling
 	cd(fullfile('.','src_sie','src_assembly','src_mexdirect_ws_rwg'));
 	mexdirect_ws_rwg_build;
-	cd(current);
+	cd(root);
+
 	cd(fullfile('.','src_sie','src_coupling','src_quadrature','coupling_mex'));
 	mexCoupling_build;
-	cd(current);
+	cd(root);
+
 	cd(fullfile('.','src_sie','src_coupling','src_quadraturemex','coupling_qmex'));
 	mexCoupling_build;
-	cd(current);
+	cd(root);
+
 	cd(fullfile('.','src_sie','src_coupling','src_quadraturemex','coupling_qmex'));
 	mexCouplingACA_build;
-	cd(current);
+	cd(root);
+
 
 	%% data parsing
 	cd(fullfile('.','src_geometry','src_scat','src_data'));
 	mexDataBuild;
-	cd(current);
+	cd(root);
 catch me
-	cd(current);
+	cd(root);
 	error('Unable to compile MARIE\nMake sure to properly configure mex and openmp libraries.\nIdentifier: %s\nMessage: %s\n', me.identifier, me.message);
 end
-clear current;
+clear root;
