@@ -189,7 +189,7 @@ Nd = max(SCOIL.index); % number of dofs
 
 
 % MAC does not allows to call memory
-if ~ismac
+if ispc
     % check memory available and size of the coupling
     [~,MMv] = memory;
     % if memory available is smaller than 3 times the size of the coupling
