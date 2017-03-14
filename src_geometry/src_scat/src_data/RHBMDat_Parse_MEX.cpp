@@ -3,7 +3,9 @@
 #include "matrix.h"
 #include "stdint.h"
 #include <cstdio>
+#ifndef __APPLE__
 #include <omp.h>
+#endif
 #include <complex>
 #include <algorithm>
 #include <vector>
@@ -52,7 +54,7 @@ void mexFunction(int nlhs, mxArray* plhs[], int nrhs, const mxArray* prhs[]) {
 	copy(yVec.begin(), yVec.begin()+M, mxGetPr(plhs[1]));
 	copy(zVec.begin(), zVec.begin()+N, mxGetPr(plhs[2]));
 
-	size_t dims[3] = {L,M,N};
+	size_t dims[3] = {(size_t)L,(size_t)M,(size_t)N};
 	double* lhsp[6];
 	for(int k=0;k < 6;k++) {
 		plhs[k+3] = mxCreateUninitNumericArray(3, dims, mxDOUBLE_CLASS, mxREAL);
